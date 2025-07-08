@@ -101,7 +101,8 @@ extern uint64 sys_unlink(void);
 extern uint64 sys_link(void);
 extern uint64 sys_mkdir(void);
 extern uint64 sys_close(void);
-
+extern uint64 sys_trace(void);
+extern uint64 sys_sysinfo(void);
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
 static uint64 (*syscalls[])(void) = {
@@ -126,8 +127,38 @@ static uint64 (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+[SYS_trace]   sys_trace,
+[SYS_sysinfo] sys_sysinfo,
 };
 
+// 定义系统调用名称的字符串数组
+const char* mm_syscall_names[] = {
+[SYS_fork]    "fork",
+[SYS_exit]    "exit",
+[SYS_wait]    "wait",
+[SYS_pipe]    "pipe",
+[SYS_read]    "read",
+[SYS_kill]    "kill",
+[SYS_exec]    "exec",
+[SYS_fstat]   "fstat",
+[SYS_chdir]   "chdir",
+[SYS_dup]     "dup",
+[SYS_getpid]  "getpid",
+[SYS_sbrk]    "sbrk",
+[SYS_sleep]   "sleep",
+[SYS_uptime]  "uptime",
+[SYS_open]    "open",
+[SYS_write]   "write",
+[SYS_mknod]   "mknod",
+[SYS_unlink]  "unlink",
+[SYS_link]    "link",
+[SYS_mkdir]   "mkdir",
+[SYS_close]   "close",
+[SYS_trace]   "trace",
+[SYS_sysinfo] "sysinfo",
+};
+
+// 系统调用的统一入口，每一次系统调用都会执行
 void
 syscall(void)
 {
@@ -138,7 +169,14 @@ syscall(void)
   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
     // Use num to lookup the system call function for num, call it,
     // and store its return value in p->trapframe->a0
+    // 调用对应的处理函数
     p->trapframe->a0 = syscalls[num]();
+    // 如果当前进程启用了trace跟踪，则按照题设要求打印信息, >>是位操作，表示右移了num位
+    // 如果当前进程启动了对应事件的跟踪，那么当前mm_sysycall_trace的第num+1位上应该是位1的，所以右移num应该第0位是1
+    if((p->mm_syscall_trace >> num) & 1)
+    {
+      printf("%d: syscall %s -> %ld\n",p->pid,mm_syscall_names[num],p->trapframe->a0);// 第三个是对应系统调用函数的返回值，比如sys_trace的是0
+    }
   } else {
     printf("%d %s: unknown sys call %d\n",
             p->pid, p->name, num);

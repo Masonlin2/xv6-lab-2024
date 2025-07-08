@@ -36,3 +36,5 @@ entry("getpid");
 entry("sbrk");
 entry("sleep");
 entry("uptime");
+entry("trace"); #具体的跳板函数，切换到内核态
+entry("sysinfo"); #获取系统信息

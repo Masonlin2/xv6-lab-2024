@@ -1,0 +1,7 @@
+{
+    "makefile.configureOnOpen": false,
+    "files.associations": {
+        "*.md": "code-text-binary",
+        "sysinfo.h": "c"
+    }
+}

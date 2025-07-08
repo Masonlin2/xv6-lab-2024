@@ -1,4 +1,4 @@
-// System call numbers
+// System call numbers,这个应该是按照2的多少次方来的，这里是告诉内核需要调用哪个
 #define SYS_fork    1
 #define SYS_exit    2
 #define SYS_wait    3
@@ -20,3 +20,5 @@
 #define SYS_link   19
 #define SYS_mkdir  20
 #define SYS_close  21
+#define SYS_trace  22
+#define SYS_sysinfo 32

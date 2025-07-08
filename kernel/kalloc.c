@@ -90,4 +90,19 @@ kalloc(void)
 #endif
   return (void*)r;
 }
+// xv6采用了一种简单的空闲链表机制来记录空闲的物理内存页，空闲页表自身作为链表节点，只想下一个空闲页
+void
+mm_freebytes(uint64 *freemem)
+{
+  *freemem = 0;
+  struct run* p = kmem.freelist;
+  acquire(&kmem.lock);
+
+  while(p)
+  {
+    (*freemem) += PGSIZE;// PGSIZE为每一页的大小,一个链表为一个页表
+    p = p->next;
+  }
+  release(&kmem.lock);
+}
 

@@ -8,7 +8,7 @@
 
 struct cpu cpus[NCPU];
 
-struct proc proc[NPROC];
+struct proc proc[NPROC];// 进程表，记录了所有进程,其中的state属性用于判断进程当前是否在使用
 
 struct proc *initproc;
 
@@ -114,7 +114,7 @@ allocproc(void)
   for(p = proc; p < &proc[NPROC]; p++) {
     acquire(&p->lock);
     if(p->state == UNUSED) {
-      goto found;
+      goto found;// 如果找到有用的进行就到found去执行
     } else {
       release(&p->lock);
     }
@@ -145,7 +145,7 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
-
+  p->mm_syscall_trace = 0;// 新进程创建的时候，默认是0
   return p;
 }
 
@@ -322,6 +322,7 @@ fork(void)
   np->state = RUNNABLE;
   release(&np->lock);
 
+  np->mm_syscall_trace = p->mm_syscall_trace;// 子进程要进行继承
   return pid;
 }
 
@@ -691,5 +692,18 @@ procdump(void)
       state = "???";
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
+  }
+}
+void
+mm_numproc(uint64 *nproc)
+{
+  *nproc = 0;
+  struct proc *p;
+  for(p = proc;p < &proc[NPROC];++p)
+  {
+    if(p->state != UNUSED)
+    {
+      (*nproc)++;
+    }
   }
 }
