@@ -354,13 +354,13 @@ sfence_vma()
   asm volatile("sfence.vma zero, zero");
 }
 
-typedef uint64 pte_t;
-typedef uint64 *pagetable_t; // 512 PTEs
+typedef uint64 pte_t;// PTE存储在页表当中，一个PTE64位
+typedef uint64 *pagetable_t; // 512 PTEs，一个页表大小4KB，刚好放512个PTE
 
 #endif // __ASSEMBLER__
 
-#define PGSIZE 4096 // bytes per page
-#define PGSHIFT 12  // bits of offset within a page
+#define PGSIZE 4096 // bytes per page，一页的大小
+#define PGSHIFT 12  // bits of offset within a page，一个页表的偏移位数，12位一共4096
 
 #ifdef LAB_PGTBL
 #define SUPERPGSIZE (2 * (1 << 20)) // bytes per page
@@ -370,7 +370,7 @@ typedef uint64 *pagetable_t; // 512 PTEs
 #define PGROUNDUP(sz)  (((sz)+PGSIZE-1) & ~(PGSIZE-1))
 #define PGROUNDDOWN(a) (((a)) & ~(PGSIZE-1))
 
-#define PTE_V (1L << 0) // valid
+#define PTE_V (1L << 0) // valid，左移0位是1
 #define PTE_R (1L << 1)
 #define PTE_W (1L << 2)
 #define PTE_X (1L << 3)
@@ -383,8 +383,9 @@ typedef uint64 *pagetable_t; // 512 PTEs
 #endif
 
 // shift a physical address to the right place for a PTE.
+// 物理地址64位，后12位偏移量不放在PTE当中，然后PTE后10位是标志位，所以要这样
 #define PA2PTE(pa) ((((uint64)pa) >> 12) << 10)
-
+// 这里PTE到物理地址同理，因为一页的大小位4096即12位，根据内存对其，后面12位一定是0,对于一个页的起始地址
 #define PTE2PA(pte) (((pte) >> 10) << 12)
 
 #define PTE_FLAGS(pte) ((pte) & 0x3FF)
@@ -392,6 +393,7 @@ typedef uint64 *pagetable_t; // 512 PTEs
 // extract the three 9-bit page table indices from a virtual address.
 #define PXMASK          0x1FF // 9 bits
 #define PXSHIFT(level)  (PGSHIFT+(9*(level)))
+// 每次移动，最低的9位和PXMASK与，因为只有末尾9位有效，所以其他全变为0
 #define PX(level, va) ((((uint64) (va)) >> PXSHIFT(level)) & PXMASK)
 
 // one beyond the highest possible virtual address.

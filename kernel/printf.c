@@ -158,7 +158,7 @@ printf(char *fmt, ...)
 
   return 0;
 }
-
+// 用死循环让系统停止
 void
 panic(char *s)
 {

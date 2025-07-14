@@ -9,7 +9,7 @@
 #include "fs.h"
 
 /*
- * the kernel's page table.
+ * the kernel's page table,xv6内核的虚拟页表机制
  */
 pagetable_t kernel_pagetable;
 
@@ -92,29 +92,33 @@ kvminithart()
 //   21..29 -- 9 bits of level-1 index.
 //   12..20 -- 9 bits of level-0 index.
 //    0..11 -- 12 bits of byte offset within the page.
+// 上面讲得是一个虚拟地址的64位的使用
+// 该函数返回虚拟地址对应的PTE
 pte_t *
 walk(pagetable_t pagetable, uint64 va, int alloc)
 {
   if(va >= MAXVA)
     panic("walk");
-
+  // 采用的三级页表，要从最高的level-2开始
   for(int level = 2; level > 0; level--) {
     pte_t *pte = &pagetable[PX(level, va)];
     if(*pte & PTE_V) {
-      pagetable = (pagetable_t)PTE2PA(*pte);
+      pagetable = (pagetable_t)PTE2PA(*pte);// 找此时pte对应的下一级页表，包含的都是物理地址，所以要用物理地址来找
 #ifdef LAB_PGTBL
       if(PTE_LEAF(*pte)) {
         return pte;
       }
 #endif
     } else {
+      // 这里是PTE不存在时，新建一个page，并映射当前的PTE，其实就是下一级的PTE页表
       if(!alloc || (pagetable = (pde_t*)kalloc()) == 0)
         return 0;
       memset(pagetable, 0, PGSIZE);
-      *pte = PA2PTE(pagetable) | PTE_V;
+      *pte = PA2PTE(pagetable) | PTE_V;// 需要把给出来的物理地址转换一下
     }
   }
-  return &pagetable[PX(0, va)];
+  // 上面保证了一定能够给最后一级分配可用的物理地址，下面直接返回调用就可以了
+  return &pagetable[PX(0, va)];// 0级即最后一级
 }
 
 // Look up a virtual address, return the physical address,
@@ -129,7 +133,7 @@ walkaddr(pagetable_t pagetable, uint64 va)
   if(va >= MAXVA)
     return 0;
 
-  pte = walk(pagetable, va, 0);
+  pte = walk(pagetable, va, 0);// 返回对应的最有一级的物理地址PTE
   if(pte == 0)
     return 0;
   if((*pte & PTE_V) == 0)
@@ -137,7 +141,7 @@ walkaddr(pagetable_t pagetable, uint64 va)
   if((*pte & PTE_U) == 0)
     return 0;
   pa = PTE2PA(*pte);
-  return pa;
+  return pa;// 最后返回的是物理地址
 }
 
 
@@ -162,24 +166,24 @@ mappages(pagetable_t pagetable, uint64 va, uint64 size, uint64 pa, int perm)
   uint64 a, last;
   pte_t *pte;
 
-  if((va % PGSIZE) != 0)
+  if((va % PGSIZE) != 0)// 这里主要是为了页表对齐
     panic("mappages: va not aligned");
 
-  if((size % PGSIZE) != 0)
+  if((size % PGSIZE) != 0)// 这里主要是为了控制大小，保证一页的大小固定
     panic("mappages: size not aligned");
 
   if(size == 0)
     panic("mappages: size");
   
   a = va;
-  last = va + size - PGSIZE;
+  last = va + size - PGSIZE;//last是最后一页的起始地址
   for(;;){
-    if((pte = walk(pagetable, a, 1)) == 0)
+    if((pte = walk(pagetable, a, 1)) == 0)// 表示无效，这里是返回对应的pte或者不存在就创建一个完整的页表项
       return -1;
-    if(*pte & PTE_V)
+    if(*pte & PTE_V)// 防止重复映射，就已经有虚拟地址使用当前物理地址了，如果有表示出现异常了，此时要使系统停止，不会向下执行，然后重启
       panic("mappages: remap");
-    *pte = PA2PTE(pa) | perm | PTE_V;
-    if(a == last)
+    *pte = PA2PTE(pa) | perm | PTE_V;// 创建完且没有重复映射的接着往下执行
+    if(a == last)// a为最后一页的时候就不执行了
       break;
     a += PGSIZE;
     pa += PGSIZE;
@@ -306,6 +310,7 @@ freewalk(pagetable_t pagetable)
   // there are 2^9 = 512 PTEs in a page table.
   for(int i = 0; i < 512; i++){
     pte_t pte = pagetable[i];
+    // 中间节点是不包含(PTE_R|PTE_W|PTE_X) 这三个权限的，所以用来判断是否进行递归
     if((pte & PTE_V) && (pte & (PTE_R|PTE_W|PTE_X)) == 0){
       // this PTE points to a lower-level page table.
       uint64 child = PTE2PA(pte);
@@ -317,7 +322,37 @@ freewalk(pagetable_t pagetable)
   }
   kfree((void*)pagetable);
 }
-
+// 递归打印页表
+int
+pgtprint(pagetable_t pagetable, int depth)
+{
+  // 三层递归，一层有512个页表项,因为总共27位,然后里面pte的前44位是物理地址的前44位，所以要转换之后才能得到物理地址
+  for(int i = 0;i < 512; ++i)
+  {
+    pte_t pte = pagetable[i];
+    if(pte & PTE_V)
+    {
+      printf("..");
+      for(int j = 0;j < depth; ++j)
+      {
+        printf(" ..");
+      }
+      printf("%d:pte %ld pa %ld\n", depth, pte, PTE2PA(pte));
+      if((pte & (PTE_R|PTE_W|PTE_X)) == 0)
+      {
+        uint64 child = PTE2PA(pte);
+        pgtprint((pagetable_t) child, depth+1);
+      }
+    }
+  }
+  return 0;
+}
+void
+mason_vmprint(pagetable_t pagetable)
+{
+  printf("page table %p\n",pagetable);
+  pgtprint(pagetable,0);
+}
 // Free user memory pages,
 // then free page-table pages.
 void
