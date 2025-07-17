@@ -211,11 +211,11 @@ void            virtio_disk_intr(void);
 
 
 
-// #ifdef LAB_PGTBL
+#ifdef LAB_PGTBL
 // vmcopyin.c
 int             copyin_new(pagetable_t, char *, uint64, uint64);
 int             copyinstr_new(pagetable_t, char *, uint64, uint64);
-// #endif
+#endif
 
 #ifdef LAB_LOCK
 // stats.c
