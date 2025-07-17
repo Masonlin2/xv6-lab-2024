@@ -19,6 +19,7 @@ int flags2perm(int flags)
     return perm;
 }
 
+// 核心是把用户进程加在到内存当中
 int
 exec(char *path, char **argv)
 {
@@ -61,8 +62,11 @@ exec(char *path, char **argv)
       goto bad;
     if(ph.vaddr % PGSIZE != 0)
       goto bad;
+    // 
     uint64 sz1;
     if((sz1 = uvmalloc(pagetable, sz, ph.vaddr + ph.memsz, flags2perm(ph.flags))) == 0)
+      goto bad;
+    if(sz1 >= PLIC)// 防止内存的大小超出PLIC,超了没有办法做映射
       goto bad;
     sz = sz1;
     if(loadseg(pagetable, ph.vaddr, ip, ph.off, ph.filesz) < 0)
@@ -121,6 +125,9 @@ exec(char *path, char **argv)
   safestrcpy(p->name, last, sizeof(p->name));
     
   // Commit to the user image.
+  uvmunmap(p->mason_pagetable, 0, PGROUNDUP(oldsz)/ PGSIZE, 0);
+  mm_kvmcopymapping(pagetable, p->mason_pagetable, 0, sz);// 第一个是源第二个是目标，这里是为了复制一份
+  
   oldpagetable = p->pagetable;
   p->pagetable = pagetable;
   p->sz = sz;
@@ -128,7 +135,8 @@ exec(char *path, char **argv)
   p->trapframe->sp = sp; // initial stack pointer
   proc_freepagetable(oldpagetable, oldsz);
 
-  if(p->pid==1) mason_vmprint(p->pagetable);
+  if(p->pid==1) 
+    mason_vmprint(p->pagetable);
   return argc; // this ends up in a0, the first argument to main(argc, argv)
 
  bad:

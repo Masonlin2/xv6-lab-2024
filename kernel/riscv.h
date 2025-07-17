@@ -355,7 +355,7 @@ sfence_vma()
 }
 
 typedef uint64 pte_t;// PTE存储在页表当中，一个PTE64位
-typedef uint64 *pagetable_t; // 512 PTEs，一个页表大小4KB，刚好放512个PTE
+typedef uint64 *pagetable_t; // 512 PTEs，一个页表大小4KB，刚好放512个PTE，一个PTE64位8个字节4KB刚好放512个
 
 #endif // __ASSEMBLER__
 
@@ -368,13 +368,13 @@ typedef uint64 *pagetable_t; // 512 PTEs，一个页表大小4KB，刚好放512�
 #endif
 
 #define PGROUNDUP(sz)  (((sz)+PGSIZE-1) & ~(PGSIZE-1))
-#define PGROUNDDOWN(a) (((a)) & ~(PGSIZE-1))
+#define PGROUNDDOWN(a) (((a)) & ~(PGSIZE-1))// 会清除a的低12位，没有偏移量，用于获取当前虚拟地址锁在的页起始地址
 
 #define PTE_V (1L << 0) // valid，左移0位是1
 #define PTE_R (1L << 1)
 #define PTE_W (1L << 2)
 #define PTE_X (1L << 3)
-#define PTE_U (1L << 4) // user can access
+#define PTE_U (1L << 4) // user can access， 设置了PTE_U的用户无法访问
 
 
 
@@ -400,4 +400,4 @@ typedef uint64 *pagetable_t; // 512 PTEs，一个页表大小4KB，刚好放512�
 // MAXVA is actually one bit less than the max allowed by
 // Sv39, to avoid having to sign-extend virtual addresses
 // that have the high bit set.
-#define MAXVA (1L << (9 + 9 + 9 + 12 - 1))
+#define MAXVA (1L << (9 + 9 + 9 + 12 - 1))// 只到第38位，默认有0位，避免更高位扩展需要检查，简化流程

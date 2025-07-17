@@ -16,7 +16,7 @@
 // 80000000 -- entry.S, then kernel text and data
 // end -- start of kernel page allocation area
 // PHYSTOP -- end RAM used by the kernel
-
+// 内核空间的物理地址分布是从高到底的，所以可以将最低的空间直接用做用户地址空间的映射
 // qemu puts UART registers here in physical memory.
 #define UART0 0x10000000L
 #define UART0_IRQ 10
@@ -29,8 +29,11 @@
 #define E1000_IRQ 33
 #endif
 
+// qemu puts CLINT
+#define CLINT 0x02000000L// 这个要去掉，不然会影响到用户地址空间的映射
+
 // qemu puts platform-level interrupt controller (PLIC) here.
-#define PLIC 0x0c000000L
+#define PLIC 0x0c000000L // 这里是PLIC的最低地址，用来限制用户的地址空间映射的
 #define PLIC_PRIORITY (PLIC + 0x0)
 #define PLIC_PENDING (PLIC + 0x1000)
 #define PLIC_SENABLE(hart) (PLIC + 0x2080 + (hart)*0x100)

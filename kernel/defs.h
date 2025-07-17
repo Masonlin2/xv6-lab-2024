@@ -167,6 +167,7 @@ int             uartgetc(void);
 void            kvminit(void);
 void            kvminithart(void);
 void            kvmmap(pagetable_t, uint64, uint64, uint64, int);
+uint64          kvmpa(pagetable_t pagetable, uint64 va);
 int             mappages(pagetable_t, uint64, uint64, uint64, int);
 pagetable_t     uvmcreate(void);
 void            uvmfirst(pagetable_t, uchar *, uint);
@@ -182,6 +183,11 @@ int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
 void            mason_vmprint(pagetable_t pagetable);
+pagetable_t     mm_kvminit_newpgtbl(); 
+void            mm_free_pagetable(pagetable_t pagetable); 
+int             mm_kvmcopymapping(pagetable_t src, pagetable_t dst, uint64 start, uint64 size); 
+uint64          mm_dealloc(pagetable_t dst, uint64 oldsz, uint64 newsz);
+
 #if defined(LAB_PGTBL) || defined(SOL_MMAP)
 void            vmprint(pagetable_t);
 #endif
@@ -205,11 +211,11 @@ void            virtio_disk_intr(void);
 
 
 
-#ifdef LAB_PGTBL
+// #ifdef LAB_PGTBL
 // vmcopyin.c
 int             copyin_new(pagetable_t, char *, uint64, uint64);
 int             copyinstr_new(pagetable_t, char *, uint64, uint64);
-#endif
+// #endif
 
 #ifdef LAB_LOCK
 // stats.c

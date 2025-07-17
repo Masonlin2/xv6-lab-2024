@@ -53,8 +53,10 @@ procinit(void)
   initlock(&wait_lock, "wait_lock");
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
-      p->state = UNUSED;
-      p->kstack = KSTACK((int) (p - proc));
+      // 这里是在统一的内核栈进行每个进程内核的分配
+      // 现在要做的是，为每一个进程在为其分配的页表中的固定位置，即自己的内核空间的固定栈位置
+      // p->state = UNUSED;
+      // p->kstack = KSTACK((int) (p - proc));
   }
 }
 
@@ -140,6 +142,17 @@ found:
     return 0;
   }
 
+  // 为当前进行分配固定的在当前页表下的内核栈空间 
+  p->mason_pagetable = mm_kvminit_newpgtbl();
+  char* pa = kalloc();// 给一个空闲页表的物理地址
+  if(pa == 0)
+  {
+    panic("kalloc");
+  }
+  uint64 va = KSTACK(0);
+  // 相同的虚拟地址指向不同的物理地址
+  kvmmap(p->mason_pagetable, va, (uint64)pa, PGSIZE, PTE_R | PTE_W);
+  p->kstack = va;
   // Set up new context to start executing at forkret,
   // which returns to user space.
   memset(&p->context, 0, sizeof(p->context));
@@ -168,6 +181,13 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+  void* kstack_pa = (void*)kvmpa(p->mason_pagetable,p->kstack);
+  kfree(kstack_pa);
+  p->kstack = 0;
+
+  mm_free_pagetable(p->mason_pagetable);
+
+  p->mason_pagetable = 0;
   p->state = UNUSED;
 }
 
@@ -241,7 +261,7 @@ userinit(void)
   // and data into it.
   uvmfirst(p->pagetable, initcode, sizeof(initcode));
   p->sz = PGSIZE;
-
+  mm_kvmcopymapping(p->pagetable, p->mason_pagetable, 0, p->sz);// 同步拷贝
   // prepare for the very first "return" from kernel to user.
   p->trapframe->epc = 0;      // user program counter
   p->trapframe->sp = PGSIZE;  // user stack pointer
@@ -259,16 +279,25 @@ userinit(void)
 int
 growproc(int n)
 {
-  uint64 sz;
+  // 这里用于增加或者减少用户页表，那内核页表也要同步
+  uint sz;
   struct proc *p = myproc();
 
   sz = p->sz;
   if(n > 0){
-    if((sz = uvmalloc(p->pagetable, sz, sz + n, PTE_W)) == 0) {
+    uint64 newsz;
+    if((newsz = uvmalloc(p->pagetable, sz, sz + n, PTE_W)) == 0) {
       return -1;
     }
+    if(mm_kvmcopymapping(p->pagetable, p->mason_pagetable, sz, newsz - sz) != 0)
+    {
+      uvmdealloc(p->pagetable, newsz,sz);
+      return -1;
+    }
+    sz = newsz;
   } else if(n < 0){
-    sz = uvmdealloc(p->pagetable, sz, sz + n);
+    uvmdealloc(p->pagetable, sz, sz + n);
+    sz = mm_dealloc(p->mason_pagetable, sz, sz+n);
   }
   p->sz = sz;
   return 0;
@@ -289,7 +318,10 @@ fork(void)
   }
 
   // Copy user memory from parent to child.
-  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
+  // 添加映射，把用户页表直接铐到内核页表当中,内核页表是从0开始的
+  // if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0 || mm_kvmcopymapping(p->pagetable, p->mason_pagetable, 0, p->sz) < 0)
+  // 这里我出现了一个严重的错误，这里是针对子进程进行内核栈的创建，而我对父进程进行了页表的映射复制，相当于对父进程重复进行了一次映射，从而导致了mappages报错重复映射
+  if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0 || mm_kvmcopymapping(np->pagetable, np->mason_pagetable, 0, p->sz) < 0){
     freeproc(np);
     release(&np->lock);
     return -1;
@@ -462,9 +494,14 @@ scheduler(void)
         // to release its lock and then reacquire it
         // before jumping back to us.
         p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
+        c->proc = p;// 将当前进程保定到CPU
 
+        w_satp(MAKE_SATP(p->mason_pagetable));
+        sfence_vma();
+
+        swtch(&c->context, &p->context);
+        // 切换回全局的内核页表，保证CPU在非进程的上下文能够正确访问内存
+        kvminithart();
         // Process is done running for now.
         // It should have changed its p->state before coming back.
         c->proc = 0;
