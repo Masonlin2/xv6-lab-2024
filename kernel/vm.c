@@ -432,7 +432,7 @@ pgtprint(pagetable_t pagetable, int depth)
       {
         printf(" ..");
       }
-      printf("%d: pte %ld pa %ld\n", depth, pte, PTE2PA(pte));
+      printf("%d: pte %p pa %p\n", depth, (void *)pte, (void *)PTE2PA(pte));
       if((pte & (PTE_R|PTE_W|PTE_X)) == 0)
       {
         uint64 child = PTE2PA(pte);
