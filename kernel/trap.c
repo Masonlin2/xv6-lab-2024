@@ -37,7 +37,7 @@ void
 usertrap(void)
 {
   int which_dev = 0;
-
+  // 检查此时来自哪个状态,这个是专门针对用户trap的，如果不是从trap来的那就报错
   if((r_sstatus() & SSTATUS_SPP) != 0)
     panic("usertrap: not from user mode");
 
@@ -48,22 +48,28 @@ usertrap(void)
   struct proc *p = myproc();
   
   // save user program counter.
+  // 存储用户PC计数器到用户页表的trapframe当中
+  // PC计数器的作用是指向当前或即将执行的指令地址 
   p->trapframe->epc = r_sepc();
   
+  // 判断现在需要执行的trap是什么
   if(r_scause() == 8){
     // system call
-
+    // 检查是不是有其他进程杀死了当前进程
     if(killed(p))
       exit(-1);
 
     // sepc points to the ecall instruction,
     // but we want to return to the next instruction.
-    p->trapframe->epc += 4;
+    // 保存的是触发trap的指令的地址，但是希望在下一条指令进行恢复
+    p->trapframe->epc += 4;// 标准指令都是四个字节的
 
     // an interrupt will change sepc, scause, and sstatus,
     // so enable only now that we're done with those registers.
+    // 由于发生中断的时候会改变上述的几个寄存器的值，所以要提前保存然后进入中断
     intr_on();
 
+    // 对应的系统调用编号保存在p->trapframe->a7中，返回值在a0中
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
@@ -94,14 +100,18 @@ usertrapret(void)
   // we're about to switch the destination of traps from
   // kerneltrap() to usertrap(), so turn off interrupts until
   // we're back in user space, where usertrap() is correct.
+  // 关中断
   intr_off();
 
   // send syscalls, interrupts, and exceptions to uservec in trampoline.S
+  // uservec - trampoline 两个都是编译期的虚拟地址，用偏移量来计算内核页表中的虚拟地址
   uint64 trampoline_uservec = TRAMPOLINE + (uservec - trampoline);
   w_stvec(trampoline_uservec);
 
   // set up trapframe values that uservec will need when
   // the process next traps into the kernel.
+  // 存储下一次trap可能用到的一些东西
+  // 主要是确保一致性
   p->trapframe->kernel_satp = r_satp();         // kernel page table
   p->trapframe->kernel_sp = p->kstack + PGSIZE; // process's kernel stack
   p->trapframe->kernel_trap = (uint64)usertrap;

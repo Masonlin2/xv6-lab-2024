@@ -48,6 +48,7 @@ w_mepc(uint64 x)
 #define SSTATUS_SIE (1L << 1)  // Supervisor Interrupt Enable
 #define SSTATUS_UIE (1L << 0)  // User Interrupt Enable
 
+//  csrr是汇编指令，用于读取sstatus寄存器的值, r是read，w是write
 static inline uint64
 r_sstatus()
 {
@@ -160,6 +161,7 @@ w_mideleg(uint64 x)
 
 // Supervisor Trap-Vector Base Address
 // low two bits are mode.
+// stvec设计监督模式下的异常和中断处理程序的入口地址
 static inline void 
 w_stvec(uint64 x)
 {
@@ -335,6 +337,15 @@ r_ra()
 {
   uint64 x;
   asm volatile("mv %0, ra" : "=r" (x) );
+  return x;
+}
+
+// 获取s0,即当前栈帧的开始位置，risv-6中的栈分配是从高地址往低地址的，所以应该是指向的是高的地址
+static inline uint64
+r_pf()
+{
+  uint64 x;
+  asm volatile("mv %0, s0" : "=r" (x) );
   return x;
 }
 

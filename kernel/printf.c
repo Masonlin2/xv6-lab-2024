@@ -176,3 +176,16 @@ printfinit(void)
   initlock(&pr.lock, "pr");
   pr.locking = 1;
 }
+
+void backtrace(void)
+{
+  printf("backtrace:\n");
+  uint64 fp = r_pf();
+  // 页表的地址从下往上找，如果在最上面的边界上就没有再网上的page了，所以此时会相同
+  while(PGROUNDDOWN(fp)!= PGROUNDUP(fp))
+  {
+    uint64 ra = *(uint64*)(fp-8);
+    printf("%lx\n",ra);
+    fp = fp - 16;// 这里指向的是下一个栈帧的开始地址
+  }
+}
