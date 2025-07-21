@@ -29,6 +29,24 @@ trapinithart(void)
   w_stvec((uint64)kernelvec);
 }
 
+uint64 
+mm_sigalarm(int ticks, void(*handler)())
+{
+  struct proc *p = myproc();
+  p->mm_alarm_interval = ticks;
+  p->mm_alarm_handler = handler;
+  p->mm_alarm_ticks = ticks;
+  return 0;
+} 
+
+uint64 
+mm_sigreturn()
+{
+  struct proc *p = myproc();
+  *p->trapframe = *p->mm_alarm_trapframe;
+  p->mm_alarm_goingoff = 0;
+  return 0;
+}
 //
 // handle an interrupt, exception, or system call from user space.
 // called from trampoline.S
@@ -83,9 +101,18 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
+  // 用来处理计时器中断
   if(which_dev == 2)
+  {
+    if(p->mm_alarm_interval != 0 && --p->mm_alarm_ticks <= 0 && p->mm_alarm_goingoff == 0)
+    {
+      p->mm_alarm_ticks = p->mm_alarm_interval;
+      *p->mm_alarm_trapframe = *p->trapframe; // 用来保存当前的trapfram时的地址
+      p->trapframe->epc = (uint64)p->mm_alarm_handler;// 中断结束之后会跳转到这里
+      p->mm_alarm_goingoff = 1;
+    }
     yield();
-
+  }
   usertrapret();
 }
 

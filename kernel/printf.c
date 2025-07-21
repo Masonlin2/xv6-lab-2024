@@ -185,7 +185,7 @@ void backtrace(void)
   while(PGROUNDDOWN(fp)!= PGROUNDUP(fp))
   {
     uint64 ra = *(uint64*)(fp-8);
-    printf("%lx\n",ra);
-    fp = fp - 16;// 这里指向的是下一个栈帧的开始地址
+    printf("%p\n",(void*)ra);
+    fp = *(uint64*)(fp - 16);// 这里指向的是下一个栈帧的开始地址,要取当前地址指向的值才是下一个栈帧开始的位置
   }
 }

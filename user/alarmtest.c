@@ -180,14 +180,15 @@ test3()
   sigalarm(1, dummy_handler);
   printf("test3 start\n");
 
-  asm volatile("lui a5, 0");
-  asm volatile("addi a0, a5, 0xac" : : : "a0");
+  asm volatile("lui a5, 0");// 将a5清零
+  asm volatile("addi a0, a5, 0xac" : : : "a0");// a0设置为0xac
+  // 长循环用于发生时钟中断
   for(int i = 0; i < 500000000; i++)
     ;
-  asm volatile("mv %0, a0" : "=r" (a0) );
+  asm volatile("mv %0, a0" : "=r" (a0) );// 读取a0寄存器的值到a0
 
   if(a0 != 0xac)
-    printf("test3 failed: register a0 changed\n");
+    printf("test3 failed: register a0 changed, a0 = %lx\n",a0);
   else
     printf("test3 passed\n");
 }

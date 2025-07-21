@@ -55,6 +55,7 @@ sys_sleep(void)
   uint ticks0;
 
   backtrace();
+  
   argint(0, &n);
   if(n < 0)
     n = 0;
@@ -91,4 +92,23 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+// 
+uint64
+sys_sigalarm(void)
+{
+  int n;
+  uint64 fn;
+  argint(0, &n);
+  argaddr(1, &fn);
+
+  return mm_sigalarm(n, (void(*)())(fn));// 这个返回值会被存在a0当中
+}
+
+uint64
+sys_sigreturn(void)
+{
+  // 作为系统调用返回值会直接存储在a0当中
+  return mm_sigreturn();
 }
