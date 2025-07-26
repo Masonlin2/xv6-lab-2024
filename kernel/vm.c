@@ -5,7 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
-
+#include "spinlock.h"
+#include "proc.h"
 /*
  * the kernel's page table.
  */
@@ -184,10 +185,12 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
     panic("uvmunmap: not aligned");
 
   for(a = va; a < va + npages*PGSIZE; a += PGSIZE){
-    if((pte = walk(pagetable, a, 0)) == 0)
-      panic("uvmunmap: walk");
+    if((pte = walk(pagetable, a, 0)) == 0)// 惰性分配，此时可能只分配了sz，并没有实际分配物理内存，只有真正用到才会触发中断进行设置
+      // panic("uvmunmap: walk");
+      continue;
     if((*pte & PTE_V) == 0)
-      panic("uvmunmap: not mapped");
+      // panic("uvmunmap: not mapped");
+      continue;
     if(PTE_FLAGS(*pte) == PTE_V)
       panic("uvmunmap: not a leaf");
     if(do_free){
@@ -255,6 +258,31 @@ uvmalloc(pagetable_t pagetable, uint64 oldsz, uint64 newsz, int xperm)
   return newsz;
 }
 
+uint64
+mm_uvmalloc(pagetable_t pagetable, uint64 va, uint64 sz, int xperm)
+{
+  char *mem;
+  uint64 a;
+
+  va = PGROUNDDOWN(va);// 这里要向下了，因为当前没分配说明当前这个三级页表目录没分配，所以要向下
+  for(a = va; a < sz; a += PGSIZE)
+  {
+    mem = kalloc();
+    if(mem == 0)
+    {
+      uvmdealloc(pagetable, va, a);
+      return 0;
+    }
+    memset(mem, 0, PGSIZE);
+    if(mappages(pagetable, a, PGSIZE, (uint64)mem, PTE_R|PTE_U|xperm) != 0)
+    {
+      kfree(mem);
+      uvmdealloc(pagetable, va, a);
+      return 0;
+    }
+  }
+  return sz;
+}
 // Deallocate user pages to bring the process size from oldsz to
 // newsz.  oldsz and newsz need not be page-aligned, nor does newsz
 // need to be less than oldsz.  oldsz can be larger than the actual
@@ -319,9 +347,11 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
-      panic("uvmcopy: pte should exist");
+      // panic("uvmcopy: pte should exist");
+      continue;
     if((*pte & PTE_V) == 0)
-      panic("uvmcopy: page not present");
+      // panic("uvmcopy: page not present");
+      continue;
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)
@@ -360,7 +390,11 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
 {
   uint64 n, va0, pa0;
   pte_t *pte;
-
+  // 由于此时的虚拟内存不一定分配了空间，所以这里要先进行分配
+  if(mm_uvmshouldallocate(dstva))
+  {
+    mm_uvmlazyallocate(dstva);
+  }
   while(len > 0){
     va0 = PGROUNDDOWN(dstva);
     if(va0 >= MAXVA)
@@ -390,6 +424,10 @@ copyin(pagetable_t pagetable, char *dst, uint64 srcva, uint64 len)
 {
   uint64 n, va0, pa0;
 
+  if(mm_uvmshouldallocate(srcva))
+  {
+    mm_uvmlazyallocate(srcva);
+  }
   while(len > 0){
     va0 = PGROUNDDOWN(srcva);
     pa0 = walkaddr(pagetable, va0);
@@ -448,4 +486,41 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+// 这里是判断是不是未分配的惰性内存，考虑到几个判读范围和条件
+int 
+mm_uvmshouldallocate(uint64 va)
+{
+  pte_t *pte;
+  struct proc *p = myproc();
+
+  return va < p->sz 
+        && PGROUNDDOWN(va) != r_sp() // 确保不在guardpage当中，这里的sp所在页面就是guardpage, 栈顶永远是低地址
+        && ((pte = walk(p->pagetable, va, 0)) == 0 || (*pte & PTE_V) == 0);// 这里是判断是否为还未分配的惰性内存
+}
+
+void 
+mm_uvmlazyallocate(uint64 va)
+{
+  struct proc *p = myproc();
+  char *pa = kalloc();
+  // 内存分配失败的情况
+  if(pa == 0)
+  {
+    printf("lazy alloc: out of memory\n");
+    p->killed = 1;
+  }
+  else
+  {
+    memset(pa, 0, PGSIZE);
+    if(mappages(p->pagetable, PGROUNDDOWN(va), PGSIZE, (uint64) pa, PTE_R | PTE_W | PTE_X | PTE_U) != 0)
+    {
+      // 映射失败的情况
+      printf("lazy alloc: failed to map page\n");
+      kfree(pa);
+      p->killed = 1;
+    }
+  }
+
 }

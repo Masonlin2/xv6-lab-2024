@@ -43,6 +43,8 @@ usertrap(void)
 
   // send interrupts and exceptions to kerneltrap(),
   // since we're now in the kernel.
+  // satp  CPU地址翻译，翻译是一定要通过satp，内核态会把内核页表传给satp，此时映射翻译只能为内核的，所以不能直接访问用户虚拟地址
+  // 但是通过页表调整映射，操作用户页表的整个数据结构是可以的
   w_stvec((uint64)kernelvec);
 
   struct proc *p = myproc();
@@ -65,12 +67,22 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if((which_dev = devintr()) != 0){
+  }
+  else if((which_dev = devintr()) != 0){
     // ok
-  } else {
-    printf("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);
-    printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
-    setkilled(p);
+  } 
+  else {
+    uint64 va = r_stval();
+    if((r_scause() == 13 || r_scause() == 15) && mm_uvmshouldallocate(va))
+    {
+      mm_uvmlazyallocate(va);
+    }
+    else
+    {
+      printf("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);
+      printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
+      setkilled(p);
+    }
   }
 
   if(killed(p))

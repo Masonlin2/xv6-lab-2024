@@ -173,7 +173,9 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
-
+uint64          mm_uvmalloc(pagetable_t pagetable_t, uint64 va, uint64 sz, int perm);
+int             mm_uvmshouldallocate(uint64 va);
+void            mm_uvmlazyallocate(uint64 va);
 // plic.c
 void            plicinit(void);
 void            plicinithart(void);
