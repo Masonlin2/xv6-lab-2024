@@ -276,6 +276,8 @@ growproc(int n)
 
 // Create a new process, copying the parent.
 // Sets up child kernel stack to return as if from fork() system call.
+// 写时复制，主要是这对创建子进程的时候，默认情况在创建子进程的时候就会复制一份父进程的所有用户内存空间，
+// 会造成浪费，因此修改为写时复制
 int
 fork(void)
 {
@@ -289,6 +291,7 @@ fork(void)
   }
 
   // Copy user memory from parent to child.
+  // 这里要进行修改，只进行映射对应，而不进行内存新页分配
   if(uvmcopy(p->pagetable, np->pagetable, p->sz) < 0){
     freeproc(np);
     release(&np->lock);
