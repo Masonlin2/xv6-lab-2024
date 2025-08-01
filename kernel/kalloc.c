@@ -17,16 +17,30 @@ extern char end[]; // first address after kernel.
 struct run {
   struct run *next;
 };
-
+// 为每个CPU分配一个独立的freelist
 struct {
   struct spinlock lock;
   struct run *freelist;
-} kmem;
+} kmem[NCPU];
 
+char* kmem_lock_name[] =
+{
+    "kmem_lock_cpu0",
+    "kmem_lock_cpu1",
+    "kmem_lock_cpu2",
+    "kmem_lock_cpu3",
+    "kmem_lock_cpu4",
+    "kmem_lock_cpu5",
+    "kmem_lock_cpu6",
+    "kmem_lock_cpu7",
+};
 void
 kinit()
 {
-  initlock(&kmem.lock, "kmem");
+  for(int i = 0;i < NCPU; ++i)
+  {
+    initlock(&kmem[i].lock, kmem_lock_name[i]);
+  }
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -55,11 +69,13 @@ kfree(void *pa)
   memset(pa, 1, PGSIZE);
 
   r = (struct run*)pa;
-
-  acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
-  release(&kmem.lock);
+  push_off();// 关闭中断
+  int cpu = cpuid();
+  acquire(&kmem[cpu].lock);
+  r->next = kmem[cpu].freelist;
+  kmem[cpu].freelist = r;
+  release(&kmem[cpu].lock);
+  pop_off();
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -69,13 +85,49 @@ void *
 kalloc(void)
 {
   struct run *r;
-
-  acquire(&kmem.lock);
-  r = kmem.freelist;
+  // 加锁避免多个CPU竞争，加锁的区域叫临界区
+  push_off();
+  int cpu = cpuid();
+  acquire(&kmem[cpu].lock);
+  // 把其他cpu空闲的内存list移动到当前cpu,先全获取过来，再分配
+  // 如果两个cpu互相偷，可能会出现死锁，互相持有对方的锁
+  if(!kmem[cpu].freelist)
+  {
+    int steal_left = 64;
+    for(int i = 0; i < NCPU; ++i)
+    {
+      if(i == cpu)
+      {
+        continue;
+      }
+      acquire(&kmem[i].lock);
+      if(!kmem[i].freelist)
+      {
+        release(&kmem[i].lock);
+        continue;// 必须要加continue，否则会释放两次锁
+      }
+      struct run *r_n = kmem[i].freelist;
+      while(r_n && steal_left)
+      {
+        kmem[i].freelist = r_n->next;
+        r_n->next = kmem[cpu].freelist;// 把这一个空间摘出来
+        kmem[cpu].freelist = r_n;
+        r_n = kmem[i].freelist;// 指向下一个
+        steal_left--;
+      }
+      release(&kmem[i].lock);
+      if(steal_left == 0)
+      {
+        break;
+      }
+    }
+  }
+  // 此时在为自己获取
+  r = kmem[cpu].freelist;
   if(r)
-    kmem.freelist = r->next;
-  release(&kmem.lock);
-
+    kmem[cpu].freelist = r->next;
+  release(&kmem[cpu].lock);
+  pop_off();
   if(r)
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;

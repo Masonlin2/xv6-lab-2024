@@ -73,6 +73,8 @@ acquire(struct spinlock *lk)
   //   a5 = 1
   //   s1 = &lk->locked
   //   amoswap.w.aq a5, a5, (s1)
+
+  // 采用原子操作，返回值是lk->locked中的旧值给进去的是1，不断自旋获取，只有当获取的是0的时候才说明锁没有被占用，可以获取锁
   while(__sync_lock_test_and_set(&lk->locked, 1) != 0) {
 #ifdef LAB_LOCK
     __sync_fetch_and_add(&(lk->nts), 1);
@@ -85,9 +87,11 @@ acquire(struct spinlock *lk)
   // past this point, to ensure that the critical section's memory
   // references happen strictly after the lock is acquired.
   // On RISC-V, this emits a fence instruction.
+  // 内存障碍，告诉编译器或者CPU不要重新排序
   __sync_synchronize();
 
   // Record info about lock acquisition for holding() and debugging.
+  // 记录下持有锁的CPU
   lk->cpu = mycpu();
 }
 
