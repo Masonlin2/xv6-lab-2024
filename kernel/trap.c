@@ -78,7 +78,7 @@ usertrap(void)
       p->killed = 1;
       p->xstate = -1;
     }
-    if(r_scause() == 15 && v->mapped == 1 && !(v->prot & PROT_WRITE))
+    else if(r_scause() == 15 && v->mapped == 1 && !(v->prot & PROT_WRITE))// v为空的时候时无法访问的,所以要判断
     {
       p->killed = 1;
       p->xstate = -1;
