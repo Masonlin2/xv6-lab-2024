@@ -79,6 +79,23 @@ struct trapframe {
   /* 280 */ uint64 t6;
 };
 
+struct mm_vma
+{
+  /* data */
+  int valid; // 是否被分配
+  int mapped;// 是否被映射
+  uint64 vastart; // 该虚拟内存区域的开始位置
+  uint64 sz; // 需要映射的字节数
+
+  struct file *f;// 虚拟内存对应的文件
+  int prot; // 权限
+  int flags; // 内存区域是否写回文件
+  // offset 指的是对于当前的vastart，在当前对应的文件当中，应该偏移多少才是对应的位置，这个偏移量始终是基于文件的开始位置的，不是+vastart的
+  // 所以vastart改变的时候，要找到文件当中对应当前vastart的位置，所以偏移量需要对应更改
+  uint64 offset; // 映射文件的起点
+};
+
+#define VMASIZE 16
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
 // Per-process state
@@ -104,4 +121,6 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  struct mm_vma vmap[VMASIZE]; // mmap 虚拟内存映射地址数组
 };
+

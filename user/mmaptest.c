@@ -66,6 +66,7 @@ makefile(const char *f)
   int fd = open(f, O_WRONLY | O_CREATE);
   if (fd == -1)
     err("open");
+  // 一个buf的大小是四分之一页，所以这里实际只分配了1.5页
   memset(buf, 'A', BSIZE);
   // write 1.5 page
   for (i = 0; i < n + n/2; i++) {
@@ -88,7 +89,7 @@ mmap_test(void)
   // the mapped memory has the same bytes as originally written to the
   // file.
   //
-  makefile(f);
+  makefile(f);// 分配1.5页大小的文件
   if ((fd = open(f, O_RDONLY)) == -1)
     err("open (1)");
 
@@ -180,6 +181,8 @@ mmap_test(void)
     p[i] = 'C';
 
   // unmap just the first two of three pages of mapped memory.
+  // 取消两页映射， 这个时候会把内容写到1.5页的文件当中去
+  // 1.5页后面不够的部分好像直接扩充了
   if (munmap(p, PGSIZE*2) == -1)
     err("munmap (3)");
 
@@ -197,6 +200,7 @@ mmap_test(void)
     if (buf[i] != 'B')
       err("file page 0 does not contain modifications");
   }
+  // 这里报错感觉是写到文件的问题
   if(read(fd, buf, PGSIZE) != PGSIZE/2)
     err("dirty read #2");
   for (i = 0; i < PGSIZE/2; i++){
@@ -322,19 +326,21 @@ fork_test(void)
   // read just 2nd page.
   if(*(p1+PGSIZE) != 'A')
     err("fork mismatch (1)");
-
+  printf("match ok\n");
   if((pid = fork()) < 0)
     err("fork");
+  // printf("fork ok\n");// 这里也是没问题的
+  // printf("pid %d\n", pid);
   if (pid == 0) {
     _v1(p1);
     if (munmap(p1, PGSIZE) == -1) // just the first page
       err("munmap (7)");
-    exit(0); // tell the parent that the mapping looks OK.
+    exit(0); // tell the parent that the mapping looks OK, 应该是这里没改
   }
-
+  // 执行到这里也没问题
   int status = -1;
   wait(&status);
-
+  // printf("pid %d\n", pid);
   if(status != 0){
     printf("fork_test failed\n");
     exit(1);
@@ -345,21 +351,24 @@ fork_test(void)
   _v1(p2);
 
   printf("test fork: OK\n");
+  // printf("=== fork_test end: PID=%d ===\n", getpid());
 }
 
 void
 more_test()
 {
+  // printf("=== more_test start: PID=%d ===\n", getpid());
   int fd, pid;
   char *p;
   const char * const f = "mmap.dur";
   
   printf("test munmap prevents access\n");
   
-  makefile(f);
+  makefile(f);// 分配1.5页大小的文件
   if ((fd = open(f, O_RDWR)) == -1)
     err("open");
   p = mmap(0, PGSIZE*2, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  // 到这里没问题
   if (p == MAP_FAILED)
     err("mmap");
   close(fd);
@@ -367,27 +376,37 @@ more_test()
   *p = 'X';
   *(p+PGSIZE) = 'Y';
 
+  // pid在子进程当中返回的是0
   pid = fork();
+  // printf("pid: %d\n",pid);
   if(pid < 0) err("fork");
+  // 到这里也没问题
   if(pid == 0){
     *p = 'a';
     *(p+PGSIZE) = 'b';
+    // printf("pid : %d\n",pid);
+    // printf("Child1 starts: PID=%d, accessing unmapped memory...\n", getpid());
     if(munmap(p+PGSIZE, PGSIZE) == -1)
       err("munmap");
     // this should cause a fatal fault
+    // printf("1\n");
+    // 这个语句会造成缺页中断
     printf("*(p+PGSIZE) = %x\n", *(p+PGSIZE));
+    // printf("Child1 should not reach here: PID=%d\n", getpid());
     exit(0);
   }
   int st = 0;
   wait(&st);
   if(st != -1)
     err("child #1 read unmapped memory");
-
+  // printf("1\n");
   pid = fork();
+  // printf("pid: %d\n",pid);
   if(pid < 0) err("fork");
   if(pid == 0){
     *p = 'c';
     *(p+PGSIZE) = 'd';
+    // printf("Child1 starts: PID=%d, accessing unmapped memory...\n", getpid());
     if(munmap(p, PGSIZE) == -1)
       err("munmap");
     // this should cause a fatal fault
@@ -400,22 +419,29 @@ more_test()
     err("child #2 read unmapped memory");
 
   // parent should still be able to access the memory.
+  // 这里是对父节点的处理，父节点把值写到里面去
+  // 怎么这里有两个进程还在执行
+  // printf("pid %d\n",getpid());
   *p = 'P';
   *(p+PGSIZE) = 'Q';
-
   if(munmap(p, PGSIZE) == -1)
     err("munmap");
-
   *(p+PGSIZE) = 'R';
   if(munmap(p+PGSIZE, PGSIZE) == -1)
     err("munmap");
-
   // read the file, check that the first page starts
   // with P and the second page with R.
+  // 这里还有问题
+  // printf("About to read file, current PID: %d\n", getpid());
   fd = open(f, O_RDONLY);
+  // struct stat file_stat;
+  // fstat(fd, &file_stat);
+  // printf("File size: %ld bytes (expected: %d bytes)\n", 
+          //  file_stat.size, PGSIZE + PGSIZE/2);
   if(fd < 0) err("open");
   if(read(fd, buf, PGSIZE) != PGSIZE) err("read");
   if(buf[0] != 'P') err("first byte of file is wrong");
+  // printf("About to read file, current PID: %d\n", getpid());
   if(read(fd, buf, PGSIZE) != PGSIZE/2) err("read");
   if(buf[0] != 'R') err("first byte of 2nd page of file is wrong");
   close(fd);
@@ -432,10 +458,13 @@ more_test()
     if ((fd = open(f, O_RDWR)) == -1)
       err("open");
     p = mmap(0, PGSIZE*2, PROT_READ, MAP_SHARED, fd, 0);
+    // printf("About to read file, current PID: %d\n", getpid());
     if (p == MAP_FAILED)
       err("mmap");
     // this should cause a fatal fault
+    printf("About to read file, current PID: %d\n", getpid());
     *p = 0;
+    printf("About to read file, current PID: %d\n", getpid());
     exit(*p);
   }
 

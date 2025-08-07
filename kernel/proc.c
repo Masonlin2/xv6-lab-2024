@@ -5,6 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "fcntl.h"
 
 struct cpu cpus[NCPU];
 
@@ -146,6 +147,11 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  for(int i = 0; i < VMASIZE; ++i)
+  {
+    p->vmap[i].valid = 0;
+    p->vmap[i].mapped = 0;
+  }
   return p;
 }
 
@@ -295,7 +301,6 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
-
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
 
@@ -307,7 +312,16 @@ fork(void)
     if(p->ofile[i])
       np->ofile[i] = filedup(p->ofile[i]);
   np->cwd = idup(p->cwd);
-
+  // 使用相同的vma, 只复制vma，实际的内存页不在这里直接进行复制pte也不复制
+  for(int i = 0; i < VMASIZE; ++i)
+  {
+    struct mm_vma* v = &p->vmap[i];
+    if(v->valid)
+    {
+      np->vmap[i] = *v;
+      filedup(v->f);
+    }
+  }
   safestrcpy(np->name, p->name, sizeof(p->name));
 
   pid = np->pid;
@@ -359,7 +373,13 @@ exit(int status)
       p->ofile[fd] = 0;
     }
   }
-
+  // 放到这里就没问题了，放在freealloc里面就不行
+  for(int i = 0; i < VMASIZE; ++i)
+  {
+    struct mm_vma* v = &p->vmap[i];
+    if(v->valid)
+      vmaunmap(p->pagetable, v->vastart, v->sz, v);
+  }
   begin_op();
   iput(p->cwd);
   end_op();
@@ -395,7 +415,6 @@ wait(uint64 addr)
   struct proc *p = myproc();
 
   acquire(&wait_lock);
-
   for(;;){
     // Scan through table looking for exited children.
     havekids = 0;
@@ -432,6 +451,7 @@ wait(uint64 addr)
     // Wait for a child to exit.
     sleep(p, &wait_lock);  //DOC: wait-sleep
   }
+  printf("1\n");
 }
 
 // Per-CPU process scheduler.

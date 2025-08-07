@@ -15,6 +15,7 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "memlayout.h"
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -501,5 +502,169 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+// 这里采用的是惰性分配，只是提前在这里计数
+uint64
+sys_mmap()
+{
+  uint64 addr, sz, offset;
+  int flags, prot, fd;
+  struct file *f;
+  argaddr(0, &addr);argaddr(1, &sz);argint(2, &prot);argint(3, &flags);argfd(4, &fd, &f);argaddr(5, &offset);
+  if((!f->readable && (prot & PROT_READ)) // 文件为不可读，但是此时权限为可读 
+    || (!f->writable && (prot & PROT_WRITE) && !(flags & MAP_PRIVATE))) // 文件为不可写，但是权限为可写，同时标志设为应写回
+  {
+    return -1;
+  }
+
+  sz = PGROUNDUP(sz); // 为了对齐
+  // 从当前进程的vma当中寻找空的vma
+  struct proc* p = myproc();
+  struct mm_vma *v = 0;
+  uint64 vmend = MMAPEND;
+
+  for(int i = 0; i < VMASIZE; ++i)
+  {
+    struct mm_vma *vv = &p->vmap[i];
+    if(vv->valid == 0)
+    {
+      if(v == 0)
+      {
+        v = &p->vmap[i];
+        v->valid = 1;
+      }
+    }
+    else if(vv->vastart < vmend)
+    {
+      vmend = PGROUNDDOWN(vv->vastart);
+    }
+  }
+
+  if(v == 0)
+  {
+    panic("mmap: no free vma");
+  }
+  // 对得到的vma进行分配设置
+  v->vastart = vmend - sz;// 因为这里的内存分配是从高到底的，防止占用进程原本使用的内存
+  v->flags = flags;
+  v->prot = prot;
+  v->sz = sz;
+  v->offset = offset;
+  v->f = f;
+
+  filedup(v->f); // 增加文件的引用计数
+  return v->vastart;
+}
+
+struct mm_vma* 
+findvma(struct proc* p, uint64 vastart)
+{
+  for(int i = 0; i < VMASIZE; ++i)
+  {
+    struct mm_vma *vv = &p->vmap[i];
+    if(vv->valid == 1 && vastart >= vv->vastart && vastart < vv->vastart + vv->sz)
+    {
+      return vv;
+    }
+  }
+  return 0; 
+}
+
+// 中断中用vmaalloc开始映射
+int 
+vmaalloc(uint64 vastart)
+{
+  struct proc* p = myproc();
+  struct mm_vma* v = findvma(p, vastart);
+
+  if(v == 0)
+  {
+    return 0;
+  }
+
+  void* pa = kalloc();
+  if(pa == 0)
+  {
+    panic("vmmaalloc: kalloc");
+  }
+
+  memset(pa, 0, PGSIZE);
+
+  // 开始从磁盘读取数据
+  begin_op();
+  ilock(v->f->ip);
+  readi(v->f->ip, 0, (uint64)pa, v->offset + PGROUNDDOWN(vastart - v->vastart), PGSIZE);// 主要是为了页面对齐，从偏移的位置开始，算完整的一页
+  iunlock(v->f->ip);
+  end_op();
+  // 这里不能默认设置所有权限
+  int perm = PTE_U;
+  if(v->prot & PROT_READ)
+  {
+    perm |= PTE_R;
+  }
+  if(v->prot & PROT_WRITE)
+  {
+    perm |= PTE_W;
+  }
+  // if(v->prot & PROT_EXEC)
+  // {
+  //   perm |= PTE_X;
+  // }
+  if(mappages(p->pagetable, vastart, PGSIZE, (uint64) pa, perm) < 0)
+  {
+    panic("vmaalloc: mappages");
+  }
+  v->mapped = 1;
+  return 1;
+} 
+
+uint64
+sys_munmap()
+{
+  uint64 addr, sz;
+  argaddr(0, &addr);
+  argaddr(1, &sz);
+
+  struct proc* p = myproc();
+  struct mm_vma*v = findvma(p, addr);
+  if(v == 0)
+  {
+    return -1;
+  }
+  // 必须在开始位置和结束位置，不能在中间，此时的部分是不够删除的
+  if(addr > v->vastart && addr + sz < v->vastart + v->sz)
+  {
+    return -1;
+  }
+  // 够删除的时候考虑当前应该从哪个位置开始删除
+  uint64 addr_de = addr;
+  if(addr > v->vastart)
+  {
+    addr_de = PGROUNDUP(addr);
+  }
+
+  int n_munmap = sz - (addr_de - addr);
+
+  if(n_munmap < 0)
+  {
+    n_munmap = 0;
+  }
+  // 这里没有改变地址
+  vmaunmap(p->pagetable, addr_de, n_munmap, v);
+  if(addr <= v->vastart && addr + sz > v->vastart)
+  {
+    v->offset = v->offset + addr + sz - v->vastart;
+    v->vastart = addr + sz;
+  }
+
+  v->sz -= sz;
+  if(v->sz <= 0)
+  {
+    fileclose(v->f);
+    v->valid = 0;
+  }
+
   return 0;
 }

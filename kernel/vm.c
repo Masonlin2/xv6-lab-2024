@@ -5,7 +5,11 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
-
+#include "fcntl.h"
+#include "spinlock.h"
+#include "sleeplock.h"
+#include "file.h"
+#include "proc.h"
 /*
  * the kernel's page table.
  */
@@ -448,4 +452,64 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+void 
+vmaunmap(pagetable_t pagetable, uint64 va, uint64 sz, struct mm_vma* v)
+{
+  uint64 a;
+  pte_t* pte;
+  uint fsz = v->f->ip->size;
+  // printf("file size pre : %d\n",fsz);
+  for( a = va; a < va + sz; a+=PGSIZE)
+  {
+    if((pte = walk(pagetable, a, 0)) ==  0)
+    {
+      continue;
+    }
+    if(PTE_FLAGS(*pte) == PTE_V)
+    {
+      panic("sys_munmap: not a leaf");
+    }
+    if(*pte & PTE_V)
+    {
+      uint64 pa = PTE2PA(*pte);
+      // 当前条件下，在取消映射是，要把本来修改的内容写回底层文件当中
+      // if((*pte & PTE_D) && (v->flags & MAP_SHARED))
+      if((v->flags & MAP_SHARED) && (v->prot & PROT_WRITE))// 映射本身要有写权限
+      {
+        begin_op();
+        ilock(v->f->ip);
+        // 当前的页相当于开始位置的偏移，表示比开始位置还要偏移这么多
+        uint64 aoff = a - v->vastart;
+        // 偏移量值的是当前映射地址对应于当前的文件中的偏移后的实际位置，偏移量本身不会加上映射地址
+        // printf("munmap: aoff=%ld, fsz=%d, writing %ld bytes\n", 
+        //  aoff, fsz, (aoff + PGSIZE > fsz) ? (fsz - aoff) : PGSIZE);
+        if(aoff < 0)
+        {
+          writei(v->f->ip, 0, pa + (-aoff), v->offset, PGSIZE + aoff);
+        }
+        else if(aoff + PGSIZE > fsz)
+        {
+          // 这里文件中刚开始的位置应该是v->offset的位置，此时还要偏移aoff，所以加上之后才是当前应该在文件当中的实际对应
+          // printf("vma size: %ld\n", v->sz);
+          writei(v->f->ip, 0, pa, v->offset + aoff, fsz - aoff);// 每次都是从offset开始写，a和->start是用来判断内存映射的地址的，加上偏移量是文件的实际地址
+        }
+        else// 主要是这个else的逻辑出了问题
+        {
+          uint64 file_offset = v->offset + aoff;
+          uint64 max_write = (file_offset + PGSIZE > fsz) ? (fsz - file_offset) : PGSIZE;
+          writei(v->f->ip, 0, pa, v->offset + aoff, max_write);
+          // printf("vma size: %ld \n", v->sz);
+          // printf("file size cur : %d\n",fsz);
+        }
+        // printf("munmap: file size after write: %d\n", v->f->ip->size);
+        iunlock(v->f->ip);
+        end_op();
+      }
+      kfree((void*)pa);
+      *pte = 0;
+    }
+  }
+  // printf("file size cur : %d\n",fsz);
 }

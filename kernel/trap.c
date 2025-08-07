@@ -5,7 +5,7 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
-
+#include "fcntl.h"
 struct spinlock tickslock;
 uint ticks;
 
@@ -67,7 +67,32 @@ usertrap(void)
     syscall();
   } else if((which_dev = devintr()) != 0){
     // ok
-  } else {
+  }
+  else if(r_scause() == 13 || r_scause() == 15) 
+  {
+    uint64 va = r_stval();
+    struct mm_vma* v = findvma(p, va);
+    // 需要添加一个来单独判断当前没有写权限,同时当前vma已经映射了
+    if(v == 0)// 防止空的访问
+    {
+      p->killed = 1;
+      p->xstate = -1;
+    }
+    if(r_scause() == 15 && v->mapped == 1 && !(v->prot & PROT_WRITE))
+    {
+      p->killed = 1;
+      p->xstate = -1;
+    }
+    else
+    {
+      if(vmaalloc(va) == 0)// 不能单纯的用分配空间来,如果是写入错误的话,此时就会造成重复映射
+      {
+        p->killed = 1;
+        p->xstate = -1;
+      }
+    }
+  }
+  else {
     printf("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);
     printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
     setkilled(p);

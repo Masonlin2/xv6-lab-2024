@@ -12,7 +12,7 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
-
+struct mm_vma;
 // bio.c
 void            binit(void);
 struct buf*     bread(uint, uint);
@@ -149,6 +149,10 @@ int             fetchstr(uint64, char*, int);
 int             fetchaddr(uint64, uint64*);
 void            syscall();
 
+// sysfile.c
+int             vmaalloc(uint64 vastart);
+struct mm_vma*  findvma(struct proc* p, uint64 vastart);
+
 // trap.c
 extern uint     ticks;
 void            trapinit(void);
@@ -181,6 +185,7 @@ uint64          walkaddr(pagetable_t, uint64);
 int             copyout(pagetable_t, uint64, char *, uint64);
 int             copyin(pagetable_t, char *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
+void            vmaunmap(pagetable_t pagetable, uint64 va, uint64 sz, struct mm_vma* v);
 #if defined(LAB_PGTBL) || defined(SOL_MMAP)
 void            vmprint(pagetable_t);
 #endif

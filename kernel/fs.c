@@ -502,12 +502,13 @@ readi(struct inode *ip, int user_dst, uint64 dst, uint off, uint n)
 // Returns the number of bytes successfully written.
 // If the return value is less than the requested n,
 // there was an error of some kind.
+// 这里内存不够的时候会进行自动扩容
 int
 writei(struct inode *ip, int user_src, uint64 src, uint off, uint n)
 {
   uint tot, m;
   struct buf *bp;
-
+  // printf("file size: %d \n", ip->size);
   if(off > ip->size || off + n < off)
     return -1;
   if(off + n > MAXFILE*BSIZE)
@@ -534,7 +535,7 @@ writei(struct inode *ip, int user_src, uint64 src, uint off, uint n)
   // because the loop above might have called bmap() and added a new
   // block to ip->addrs[].
   iupdate(ip);
-
+  // printf("file size: %d \n", ip->size);
   return tot;
 }
 

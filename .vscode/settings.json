@@ -1,0 +1,7 @@
+{
+    "files.associations": {
+        "*.md": "code-text-binary",
+        "file.h": "c",
+        "proc.h": "c"
+    }
+}
